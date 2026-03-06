@@ -1,17 +1,14 @@
 import torch
-import torch.nn.functional as F
 import gradio as gr
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Load local model
-model_path = "sentiment_model"
+# Load model from current folder
+model_path = "."
 
-tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-model = AutoModelForSequenceClassification.from_pretrained(model_path, local_files_only=True)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSequenceClassification.from_pretrained(model_path)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
+labels = ["Negative 😠", "Neutral 😐", "Positive 😊"]
 
 def predict_sentiment(text):
 
@@ -19,43 +16,28 @@ def predict_sentiment(text):
         text,
         return_tensors="pt",
         truncation=True,
-        padding=True,
-        max_length=256
-    ).to(device)
+        padding=True
+    )
 
     with torch.no_grad():
         outputs = model(**inputs)
 
-    probs = F.softmax(outputs.logits, dim=1)[0]
+    probs = torch.nn.functional.softmax(outputs.logits, dim=1)
 
-    negative_prob = probs[0].item()
-    positive_prob = probs[1].item()
+    confidence, predicted_class = torch.max(probs, dim=1)
 
-    difference = abs(positive_prob - negative_prob)
-    confidence = max(positive_prob, negative_prob)
+    sentiment = labels[predicted_class.item()]
+    confidence = round(confidence.item() * 100, 2)
 
-    if difference < 0.15:
-        sentiment = "Neutral 😐"
-    elif positive_prob > negative_prob:
-        sentiment = "Positive 😊"
-    else:
-        sentiment = "Negative 😡"
+    return f"{sentiment} (Confidence: {confidence}%)"
 
-    return f"""
-Sentiment: {sentiment}
-
-Confidence: {round(confidence*100,2)}%
-
-Positive: {round(positive_prob*100,2)}%
-Negative: {round(negative_prob*100,2)}%
-"""
-
-demo = gr.Interface(
+# Gradio Interface
+interface = gr.Interface(
     fn=predict_sentiment,
-    inputs=gr.Textbox(lines=4, placeholder="Enter text here..."),
+    inputs=gr.Textbox(lines=2, placeholder="Enter a sentence..."),
     outputs="text",
-    title="BERT Sentiment Analyzer",
-    description="AI-powered sentiment classification with confidence score."
+    title="BERT Sentiment Analysis",
+    description="AI model that predicts sentiment using a fine-tuned BERT model."
 )
 
-demo.launch()
+interface.launch()
